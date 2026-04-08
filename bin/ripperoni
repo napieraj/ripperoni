@@ -6,7 +6,7 @@
 
 set -eu
 
-# find lib/ even when someone symlinked us like a goblin
+# find lib/ regardless of shit going on w symblinks
 RIPPERONI_SELF=$(readlink "$0" 2>/dev/null || echo "$0")
 case "$RIPPERONI_SELF" in
     /*) ;;
@@ -68,6 +68,7 @@ env:
     RIPPERONI_OUTPUT_ROOT, RIPPERONI_DRIVE, RIPPERONI_CONFIG — override config file values
     RIPPERONI_RESCUE=1 — data handler uses ddrescue instead of dd
     RIPPERONI_MAKEMKV_DISC — force MakeMKV disc index (e.g. 0) if drive mapping fails
+    RIPPERONI_IOKIT_STATE — absolute path to ripperoni-iokit-state (optional; finer macOS tray state)
 EOF
 }
 
@@ -130,7 +131,7 @@ platform_init
 # output root: flag beats env beats config. democracy was never an option
 output_root=${opt_output_root:-${RIPPERONI_OUTPUT_ROOT:-$output_root}}
 
-# drive: lazy init. not every subcommand cares about your silly little laser box
+# drive: lazy init. not every subcommand cares about your silly little laser
 resolve_drive() {
     drive=${opt_drive:-${RIPPERONI_DRIVE:-${default_drive:-}}}
     if [ -z "$drive" ]; then
@@ -199,7 +200,7 @@ ripperoni_default() {
 
     # shellcheck disable=SC1090
     . "$detect_file"
-    # if TYPE is missing something went VERY wrong
+    # if TYPE is missing something went VERY wrong WARNING! WHY ARE YOU PLAYING WITH DISCS IN 2026 ANYWAY?
     : "${TYPE:?detection did not set TYPE}"
 
     log_info "type: $TYPE"
@@ -294,7 +295,7 @@ case "$subcommand" in
         ;;
 
     doctor)
-        # doctor runs even with no drive; it'll complain. that's its whole personality
+        # doctor runs even with no drive; it'll complain, like every doctor ever
         drive=${opt_drive:-${RIPPERONI_DRIVE:-${default_drive:-}}}
         if [ -z "$drive" ]; then
             drive=$(drive_autodetect 2>/dev/null || echo "")

@@ -9,6 +9,13 @@ permissions:
   contents: read
 
 jobs:
+  swift-iokit:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ripperoni-iokit-state
+        run: swift build -c release --package-path tools/macos-iokit-state
+
   shellcheck:
     runs-on: ubuntu-latest
     steps:

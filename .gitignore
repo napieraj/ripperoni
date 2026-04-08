@@ -16,3 +16,6 @@ Thumbs.db
 # Accidental rip artifacts in the tree
 *.iso
 *.img
+
+# SwiftPM (optional macOS helper)
+tools/macos-iokit-state/.build/

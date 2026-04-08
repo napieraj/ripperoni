@@ -3,17 +3,84 @@
 #
 # states: unknown open loading empty ready busy error empty-or-open (last one is mac's fault)
 # linux: ioctl 0x5326, works enough to impress your uncle
-# mac: xml + vibes. empty vs open? apple says ¯\_(ツ)_/¯
+# mac: optional ripperoni-iokit-state (IOKit) → else drutil xml. see tools/macos-iokit-state/
+
+# ripperoni-iokit-state stdout: open|empty|loading|ready|busy|unknown (one line).
+# Shell uses only open|empty|loading|ready|busy; unknown → fall back to drutil.
 
 # --- state read -----------------------------------------------------------
 
-state_read() {
+# Optional macOS helper: RIPPERONI_IOKIT_STATE=/path/to/binary, PATH, or .build under RIPPERONI_ROOT.
+_iokit_helper_bin() {
+    if [ -n "${RIPPERONI_IOKIT_STATE:-}" ] && [ -x "$RIPPERONI_IOKIT_STATE" ]; then
+        printf '%s\n' "$RIPPERONI_IOKIT_STATE"
+        return 0
+    fi
+    _ik=$(command -v ripperoni-iokit-state 2>/dev/null || true)
+    if [ -n "$_ik" ] && [ -x "$_ik" ]; then
+        printf '%s\n' "$_ik"
+        return 0
+    fi
+    if [ -n "${RIPPERONI_ROOT:-}" ]; then
+        for _p in \
+            "$RIPPERONI_ROOT/tools/macos-iokit-state/.build/arm64-apple-macosx/release/ripperoni-iokit-state" \
+            "$RIPPERONI_ROOT/tools/macos-iokit-state/.build/x86_64-apple-macosx/release/ripperoni-iokit-state" \
+            "$RIPPERONI_ROOT/tools/macos-iokit-state/.build/release/ripperoni-iokit-state"
+        do
+            if [ -x "$_p" ]; then
+                printf '%s\n' "$_p"
+                return 0
+            fi
+        done
+    fi
+    return 1
+}
+
+# Prints a trusted state line on success; exit 1 → caller uses drutil.
+_iokit_state_try() {
+    drive=$1
+    _bin=$( _iokit_helper_bin ) || return 1
+    _line=$("$_bin" "$drive" 2>/dev/null) || return 1
+    _line=$(printf '%s\n' "$_line" | tr -d '\r')
+    case "$_line" in
+        open|empty|loading|ready|busy)
+            printf '%s\n' "$_line"
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Sets RIPPERONI_READ_STATE and (on macOS) RIPPERONI_STATE_SOURCE in the current shell.
+# Use this instead of $(state_read) when you need RIPPERONI_STATE_SOURCE — command substitution runs in a subshell and drops that side effect.
+_state_read_dispatch() {
     drive=$1
     case "$RIPPERONI_OS" in
-        linux)  _state_read_linux "$drive" ;;
-        macos)  _state_read_macos "$drive" ;;
-        *)      echo unknown ;;
+        linux)
+            RIPPERONI_STATE_SOURCE=ioctl
+            RIPPERONI_READ_STATE=$( _state_read_linux "$drive" )
+            ;;
+        macos)
+            if _ikout=$( _iokit_state_try "$drive" ); then
+                RIPPERONI_STATE_SOURCE=iokit
+                RIPPERONI_READ_STATE=$_ikout
+            else
+                RIPPERONI_STATE_SOURCE=drutil
+                RIPPERONI_READ_STATE=$( _state_read_macos_drutil "$drive" )
+            fi
+            ;;
+        *)
+            RIPPERONI_STATE_SOURCE=
+            RIPPERONI_READ_STATE=unknown
+            ;;
     esac
+}
+
+state_read() {
+    _state_read_dispatch "$1"
+    printf '%s\n' "$RIPPERONI_READ_STATE"
 }
 
 _state_read_linux() {
@@ -80,7 +147,7 @@ PL
     fi
 }
 
-_state_read_macos() {
+_state_read_macos_drutil() {
     drive=$1
     # drive is literally "1" or "2". apple numbered them like apartments
     command -v drutil >/dev/null 2>&1 || { echo unknown; return; }
@@ -145,20 +212,24 @@ _sleep_ms() {
 state_wiretap() {
     drive=$1
     last=""
-    source_tag=$([ "$RIPPERONI_OS" = "linux" ] && echo ioctl || echo drutil)
 
     log_info "wiretapping $drive (Ctrl-C to stop)"
 
     while :; do
-        current=$(state_read "$drive")
+        _state_read_dispatch "$drive"
+        current=$RIPPERONI_READ_STATE
+        case "$RIPPERONI_OS" in
+            linux) wire_src=ioctl ;;
+            *)     wire_src=${RIPPERONI_STATE_SOURCE:-drutil} ;;
+        esac
         if [ "$current" != "$last" ] && [ -n "$last" ]; then
             ts=$(now_iso)
             printf '{"ts":"%s","drive":"%s","from":"%s","to":"%s","source":"%s"}\n' \
-                "$ts" "$drive" "$last" "$current" "$source_tag"
+                "$ts" "$drive" "$last" "$current" "$wire_src"
         elif [ -z "$last" ]; then
             ts=$(now_iso)
             printf '{"ts":"%s","drive":"%s","from":null,"to":"%s","source":"%s"}\n' \
-                "$ts" "$drive" "$current" "$source_tag"
+                "$ts" "$drive" "$current" "$wire_src"
         fi
         last=$current
         sleep 1

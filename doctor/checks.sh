@@ -113,6 +113,17 @@ else
     fail "no optical drives found"
 fi
 
+# --- macOS IOKit helper (tray vs empty) ------------------------------------
+if [ "$RIPPERONI_OS" = "macos" ]; then
+    echo
+    echo "macos tray probe:"
+    if _ikbin=$( _iokit_helper_bin ); then
+        ok "ripperoni-iokit-state ($_ikbin)"
+    else
+        warn "ripperoni-iokit-state not on PATH or built — empty vs open tray may stay ambiguous (see README)"
+    fi
+fi
+
 # --- libredrive (UHD crowd control) ---------------------------------------
 if [ -n "$drive" ]; then
     echo

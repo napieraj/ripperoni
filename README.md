@@ -69,7 +69,7 @@ Ripperoni tracks what the drive is physically doing.
 - **`busy`** — Something is already working over the device.
 - **`empty-or-open`** — macOS only. Apple talks to the cops too much _(see **The Apple Snitch Issue** below)_.
 
-**The Apple Snitch Issue:** Linux relies on the `CDROM_DRIVE_STATUS` ioctl. Apple's `drutil` is a useless rat that can't tell an open tray from an empty one. Downstream tooling should treat macOS surveillance events with extreme suspicion until we vibe code a Swift-based IOKit bypass.
+**The Apple Snitch Issue:** Linux relies on the `CDROM_DRIVE_STATUS` ioctl. Apple's `drutil` is a useless rat that can't tell an open tray from an empty one. On macOS, ripperoni prefers **`ripperoni-iokit-state`**, a small Swift tool under [`tools/macos-iokit-state/`](tools/macos-iokit-state/) that reads IOKit (`IOCD` / `IODVD` / `IOBD` block storage devices) for tray and media hints. Build it with `swift build -c release` (binary lands in `.build/<arch>-apple-macosx/release/`), put it on your `PATH`, or point **`RIPPERONI_IOKIT_STATE`** at the executable. If the helper is missing or returns `unknown`, ripperoni falls back to `drutil` and the ambiguous **`empty-or-open`** state. Drive order follows ascending IOKit registry IDs, which usually matches `drutil list` numbering; if not, override with the usual drive selection knobs.
 
 ## Getting Made
 
@@ -97,6 +97,7 @@ These override or supplement the config file (see also `ripperoni help`):
 | `RIPPERONI_CONFIG` | Path to the shell config file |
 | `RIPPERONI_RESCUE` | Set to `1` so the data handler uses `ddrescue` instead of `dd` |
 | `RIPPERONI_MAKEMKV_DISC` | Force MakeMKV’s `disc:N` index (e.g. `0`) if automatic mapping is wrong |
+| `RIPPERONI_IOKIT_STATE` | Absolute path to `ripperoni-iokit-state` for finer macOS tray vs empty detection |
 
 Post-rip **stream** checks (`ffmpeg` / `flac`) honor `verify=0` in the config or `--no-verify` on the command line. Checksum sidecars are still written after a successful rip.
 
