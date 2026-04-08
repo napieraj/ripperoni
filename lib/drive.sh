@@ -45,14 +45,16 @@ drive_autodetect() {
 _drive_model_linux() {
     # sysfs says who made the thing
     dev=$(basename "$1")
-    vendor=$(cat "/sys/block/$dev/device/vendor" 2>/dev/null | tr -d ' ')
-    model=$(cat "/sys/block/$dev/device/model" 2>/dev/null | tr -d ' ')
+    vendor=
+    model=
+    [ -r "/sys/block/$dev/device/vendor" ] && vendor=$(tr -d ' ' < "/sys/block/$dev/device/vendor")
+    [ -r "/sys/block/$dev/device/model" ] && model=$(tr -d ' ' < "/sys/block/$dev/device/model")
     echo "${vendor:-?} ${model:-?}"
 }
 
 _drive_firmware_linux() {
     dev=$(basename "$1")
-    cat "/sys/block/$dev/device/rev" 2>/dev/null | tr -d ' ' || echo "?"
+    [ -r "/sys/block/$dev/device/rev" ] && tr -d ' ' < "/sys/block/$dev/device/rev" || echo "?"
 }
 
 # --- MakeMKV disc index (WHY is this not the same as /dev/sr1. WHY.) -------
