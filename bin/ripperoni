@@ -1,0 +1,321 @@
+#!/bin/sh
+# ripperoni. you know what a disc is. this file is mostly plumbing and guilt.
+# parse junk, load config, hand off to something that actually touches the laser.
+#
+# no robot queue, no ffmpeg crimes in here. add a handler if you're mad about a format.
+
+set -eu
+
+# find lib/ even when someone symlinked us like a goblin
+RIPPERONI_SELF=$(readlink "$0" 2>/dev/null || echo "$0")
+case "$RIPPERONI_SELF" in
+    /*) ;;
+    *)  RIPPERONI_SELF="$(pwd)/$RIPPERONI_SELF" ;;
+esac
+RIPPERONI_ROOT=$(cd "$(dirname "$RIPPERONI_SELF")/.." && pwd)
+export RIPPERONI_ROOT
+
+# shellcheck source=../lib/common.sh
+. "$RIPPERONI_ROOT/lib/common.sh"
+# shellcheck source=../lib/config.sh
+. "$RIPPERONI_ROOT/lib/config.sh"
+# shellcheck source=../lib/platform.sh
+. "$RIPPERONI_ROOT/lib/platform.sh"
+# shellcheck source=../lib/drive.sh
+. "$RIPPERONI_ROOT/lib/drive.sh"
+# shellcheck source=../lib/state.sh
+. "$RIPPERONI_ROOT/lib/state.sh"
+# shellcheck source=../lib/detect.sh
+. "$RIPPERONI_ROOT/lib/detect.sh"
+# shellcheck source=../lib/naming.sh
+. "$RIPPERONI_ROOT/lib/naming.sh"
+# shellcheck source=../lib/verify.sh
+. "$RIPPERONI_ROOT/lib/verify.sh"
+
+usage() {
+    cat <<'EOF'
+ripperoni — unified disc ripping CLI
+
+usage:
+    ripperoni [options]                  detect disc and rip with defaults
+    ripperoni <subcommand> [options]
+
+subcommands:
+    drives                         list optical drives
+    state                          print current drive state
+    eject                          open tray / eject disc
+    close                          close tray
+    wait --for <state>             block until drive reaches a state
+    wiretap                        stream state changes as JSON lines
+    doctor                         health check
+    config                         print resolved config
+    help                           this message
+
+options:
+    --drive <path>                 override drive (default: auto)
+    --type <bd|dvd|cd|data>        override disc type detection
+    --output-root <path>           override output root
+    --name <string>                override derived title
+    --identify                     detect only, don't rip
+    --dry-run                      show what would happen, touch nothing
+    --no-verify                    skip post-rip verification
+    --keep-temp                    preserve incomplete outputs on failure
+    --verbose                      more output
+    --quiet                        less output
+    --version                      print version
+
+env:
+    RIPPERONI_OUTPUT_ROOT, RIPPERONI_DRIVE, RIPPERONI_CONFIG — override config file values
+    RIPPERONI_RESCUE=1 — data handler uses ddrescue instead of dd
+    RIPPERONI_MAKEMKV_DISC — force MakeMKV disc index (e.g. 0) if drive mapping fails
+EOF
+}
+
+RIPPERONI_VERSION="0.1.0-dev"
+
+# --- args (yes, any order, we're not animals) ------------------------------
+
+opt_drive=""
+opt_type=""
+opt_output_root=""
+opt_name=""
+opt_identify=0
+opt_dry_run=0
+opt_no_verify=0
+opt_keep_temp=0
+opt_verbose=0
+opt_quiet=0
+opt_wait_for=""
+opt_timeout=""
+subcommand=""
+
+# one loop. throw flags and the subcommand in a blender, whatever.
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --drive)        opt_drive="$2"; shift 2 ;;
+        --type)         opt_type="$2"; shift 2 ;;
+        --output-root)  opt_output_root="$2"; shift 2 ;;
+        --name)         opt_name="$2"; shift 2 ;;
+        --identify)     opt_identify=1; shift ;;
+        --dry-run)      opt_dry_run=1; shift ;;
+        --no-verify)    opt_no_verify=1; shift ;;
+        --keep-temp)    opt_keep_temp=1; shift ;;
+        --verbose|-v)   opt_verbose=1; shift ;;
+        --quiet|-q)     opt_quiet=1; shift ;;
+        --for)          opt_wait_for="$2"; shift 2 ;;
+        --timeout)      opt_timeout="$2"; shift 2 ;;
+        --version)      echo "ripperoni $RIPPERONI_VERSION"; exit 0 ;;
+        -h|--help)      usage; exit 0 ;;
+        --)             shift; break ;;
+        -*)             die "unknown option: $1" ;;
+        *)
+            if [ -z "$subcommand" ]; then
+                subcommand="$1"
+                shift
+            else
+                die "unexpected argument: $1"
+            fi
+            ;;
+    esac
+done
+
+# the children want their env vars
+export RIPPERONI_VERBOSE=$opt_verbose
+export RIPPERONI_QUIET=$opt_quiet
+export RIPPERONI_DRY_RUN=$opt_dry_run
+
+config_load
+platform_init
+
+# output root: flag beats env beats config. democracy was never an option
+output_root=${opt_output_root:-${RIPPERONI_OUTPUT_ROOT:-$output_root}}
+
+# drive: lazy init. not every subcommand cares about your silly little laser box
+resolve_drive() {
+    drive=${opt_drive:-${RIPPERONI_DRIVE:-${default_drive:-}}}
+    if [ -z "$drive" ]; then
+        drive=$(drive_autodetect) || die "no optical drives found (try: ripperoni drives)"
+    fi
+    echo "$drive"
+}
+
+handler_for_type() {
+    case "$1" in
+        bd|bd-uhd)  echo bd  ;;
+        dvd)        echo dvd ;;
+        cd)         echo cd  ;;
+        data)       echo data ;;
+        game)       echo game ;;
+        *)          echo ""  ;;
+    esac
+}
+
+# the main event. disc goes brrr, files fall out. theoretically.
+ripperoni_default() {
+    drive=$1
+    log_info "drive: $drive"
+
+    # is the drive even pretending to cooperate
+    s=$(state_read "$drive") || die "cannot read drive state for $drive"
+    log_info "state: $s"
+
+    case "$s" in
+        ready)
+            ;;
+        loading)
+            if [ "${wait_for_ready:-1}" = "1" ]; then
+                log_info "drive is loading, waiting..."
+                state_wait "$drive" ready "${wait_timeout:-30}" \
+                    || die "timed out waiting for drive"
+            else
+                die "drive is still loading (set wait_for_ready=1 to auto-wait)"
+            fi
+            ;;
+        empty)
+            die "no disc in drive"
+            ;;
+        open)
+            die "drive tray is open"
+            ;;
+        empty-or-open)
+            die "no disc loaded (macOS cannot distinguish empty from open tray)"
+            ;;
+        busy)
+            die "drive is busy (another process has it open?)"
+            ;;
+        *)
+            die "drive in unexpected state: $s"
+            ;;
+    esac
+
+    # what even IS this plastic
+    detect_file=$(mktemp)
+    RIPPERONI_INHIBIT_DIR=""
+    export RIPPERONI_INHIBIT_DIR
+    trap 'rm -f "$detect_file"; [ -n "$RIPPERONI_INHIBIT_DIR" ] && rm -rf "$RIPPERONI_INHIBIT_DIR"' EXIT
+
+    detect_run "$drive" "$opt_type" >"$detect_file" \
+        || die "disc detection failed"
+
+    # shellcheck disable=SC1090
+    . "$detect_file"
+    # if TYPE is missing something went VERY wrong
+    : "${TYPE:?detection did not set TYPE}"
+
+    log_info "type: $TYPE"
+    log_info "label: ${LABEL:-<none>}"
+
+    if [ "$opt_identify" = "1" ]; then
+        cat "$detect_file"
+        exit 0
+    fi
+
+    output_dir=$(naming_resolve "$TYPE" "$output_root" "$opt_name" "$detect_file")
+    log_info "output: $output_dir"
+
+    if [ "$opt_dry_run" = "1" ]; then
+        echo "DRY RUN — would rip $TYPE from $drive to $output_dir"
+        exit 0
+    fi
+
+    mkdir -p "$output_dir"
+
+    RIPPERONI_INHIBIT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ripperoni.inhibit.XXXXXX")
+    export RIPPERONI_INHIBIT_DIR
+
+    handler=$(handler_for_type "$TYPE")
+    [ -n "$handler" ] || die "no handler for type: $TYPE"
+
+    log_info "handler: $handler"
+
+    # shellcheck disable=SC1090
+    # summon the specialist
+    . "$RIPPERONI_ROOT/lib/handlers/$handler.sh"
+
+    if handler_run "$drive" "$detect_file" "$output_dir"; then
+        log_info "rip complete"
+        if [ "$opt_no_verify" != "1" ] && [ "${verify:-1}" != "0" ]; then
+            verify_run "$TYPE" "$output_dir" || die "verification failed"
+        fi
+        verify_checksums "$output_dir"
+        meta_write "$output_dir" "$drive" "$detect_file" "$handler"
+
+        if [ "${eject_on_success:-0}" = "1" ]; then
+            log_info "ejecting"
+            state_eject "$drive"
+        fi
+        exit 0
+    else
+        log_error "handler failed"
+        if [ "$opt_keep_temp" != "1" ]; then
+            log_info "removing incomplete output (use --keep-temp to preserve)"
+            rm -rf "$output_dir"
+        fi
+        if [ "${eject_on_failure:-0}" = "1" ]; then
+            state_eject "$drive"
+        fi
+        exit 1
+    fi
+}
+
+# --- pick your fighter ----------------------------------------------------
+
+case "$subcommand" in
+    drives)
+        drive_list
+        ;;
+
+    state)
+        drive=$(resolve_drive)
+        s=$(state_read "$drive")
+        echo "$s"
+        ;;
+
+    eject)
+        drive=$(resolve_drive)
+        state_eject "$drive"
+        ;;
+
+    close)
+        drive=$(resolve_drive)
+        state_close "$drive"
+        ;;
+
+    wait)
+        [ -n "$opt_wait_for" ] || die "ripperoni wait requires --for <state>"
+        drive=$(resolve_drive)
+        timeout=${opt_timeout:-${wait_timeout:-30}}
+        state_wait "$drive" "$opt_wait_for" "$timeout"
+        ;;
+
+    wiretap)
+        drive=$(resolve_drive)
+        state_wiretap "$drive"
+        ;;
+
+    doctor)
+        # doctor runs even with no drive; it'll complain. that's its whole personality
+        drive=${opt_drive:-${RIPPERONI_DRIVE:-${default_drive:-}}}
+        if [ -z "$drive" ]; then
+            drive=$(drive_autodetect 2>/dev/null || echo "")
+        fi
+        "$RIPPERONI_ROOT/doctor/checks.sh" "$drive"
+        ;;
+
+    config)
+        config_print
+        ;;
+
+    help|'')
+        if [ -z "$subcommand" ]; then
+            drive=$(resolve_drive)
+            ripperoni_default "$drive"
+        else
+            usage
+        fi
+        ;;
+
+    *)
+        die "unknown subcommand: $subcommand (try: ripperoni help)"
+        ;;
+esac

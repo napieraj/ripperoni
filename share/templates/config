@@ -1,0 +1,35 @@
+# ripperoni config — copy to ~/.config/ripperoni/config and edit
+# This file is sourced as POSIX shell, so no quotes needed unless values
+# contain spaces.
+
+output_root="$HOME/media/rips"
+
+# Leave empty to auto-detect.
+default_drive=""
+
+# MakeMKV minimum title length (seconds). Smaller = more junk titles;
+# larger = risk missing short content (shorts, extras).
+makemkv_min_length_bd=120
+makemkv_min_length_dvd=300
+
+# CD sample offset. +6 for LG BH16NS55 / WH16NS60.
+# Look up your drive at http://www.accuraterip.com/driveoffsets.htm
+cd_offset=6
+cd_format=flac
+
+# Post-rip behavior.
+# verify=0 disables ffmpeg/flac stream checks (same as --no-verify). Checksums
+# after a successful rip are still written.
+verify=1
+sleep_inhibit=1
+
+# Optional env (not set here): RIPPERONI_RESCUE=1 uses ddrescue for data discs.
+# RIPPERONI_MAKEMKV_DISC=N forces MakeMKV disc index N if drive mapping fails.
+
+# State machine behavior.
+wait_for_ready=1
+wait_timeout=30
+
+# Automation hooks (off by default in manual ripping).
+eject_on_success=0
+eject_on_failure=0
