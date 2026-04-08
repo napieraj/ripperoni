@@ -18,5 +18,7 @@ jobs:
       - name: Run ShellCheck
         run: |
           set -euo pipefail
-          shellcheck bin/ripperoni
-          find lib doctor -name '*.sh' -print0 | xargs -0 -r shellcheck
+          # shellcheck resolves ../ from cwd unless you -P; otherwise it looks in the wrong parish
+          shellcheck -P bin -x bin/ripperoni
+          shellcheck -P doctor -x doctor/checks.sh # doctor gets the same ../ treatment, different hat
+          find lib -name '*.sh' -print0 | xargs -0 -r shellcheck

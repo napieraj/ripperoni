@@ -5,6 +5,8 @@ handler_run() {
     drive=$1
     detect_file=$2
     output_dir=$3
+    # same arity as the other handlers; DVD path ignores the detect blob. blame the API, not us.
+    : "$detect_file"
 
     command -v makemkvcon >/dev/null 2>&1 || die "makemkvcon not installed"
 

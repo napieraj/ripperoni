@@ -11,6 +11,7 @@ config_load() {
     cd_format=flac
     verify=1
     sleep_inhibit=1
+    # someday logging might care. until then it exists so shellcheck stops acting like a hall monitor
     log_level=info
     wait_for_ready=1
     wait_timeout=30
@@ -29,6 +30,7 @@ config_load() {
 }
 
 config_print() {
+    # dumping log_level here keeps humans and shellcheck equally informed. try not to cry
     cat <<EOF
 # resolved config
 output_root=$output_root
@@ -39,6 +41,7 @@ cd_offset=$cd_offset
 cd_format=$cd_format
 verify=$verify
 sleep_inhibit=$sleep_inhibit
+log_level=$log_level
 wait_for_ready=$wait_for_ready
 wait_timeout=$wait_timeout
 eject_on_success=$eject_on_success

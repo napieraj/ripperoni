@@ -135,6 +135,8 @@ fi
 # --- disk space (rips are fat) --------------------------------------------
 echo
 echo "storage:"
+# output_root is real; it's just born inside config_load() where static analysis fears to tread
+# shellcheck disable=SC2154
 if [ -d "$output_root" ] || mkdir -p "$output_root" 2>/dev/null; then
     # df -BG isn't portable because of course it isn't
     free_kb=$(df -k "$output_root" | awk 'NR==2 { print $4 }')

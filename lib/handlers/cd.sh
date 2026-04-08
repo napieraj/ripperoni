@@ -5,6 +5,9 @@ handler_run() {
     drive=$1
     detect_file=$2
     output_dir=$3
+    # we take detect_file because every handler has to match the same sad function shape.
+    # CDs don't care about your JSON feelings. shellcheck cares; we appease it with a no-op.
+    : "$detect_file"
 
     command -v cyanrip >/dev/null 2>&1 || die "cyanrip not installed"
 
