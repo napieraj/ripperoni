@@ -57,6 +57,46 @@ _drive_firmware_linux() {
     [ -r "/sys/block/$dev/device/rev" ] && tr -d ' ' < "/sys/block/$dev/device/rev" || echo "?"
 }
 
+drive_macos_bsd_node() {
+    drive=$1
+
+    case "$RIPPERONI_OS" in
+        macos) ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    case "$drive" in
+        /dev/disk[0-9]*)
+            printf '%s\n' "$drive"
+            return 0
+            ;;
+    esac
+
+    case "$drive" in
+        ''|*[!0-9]*)
+            return 1
+            ;;
+    esac
+
+    command -v drutil >/dev/null 2>&1 || return 1
+
+    bsd=$(drutil list 2>/dev/null | awk -v want="$drive" '
+        $1 == want {
+            for (i = 1; i <= NF; i++) {
+                if ($i ~ /^\/dev\/disk[0-9]+$/) {
+                    print $i
+                    exit 0
+                }
+            }
+        }
+    ')
+
+    [ -n "$bsd" ] || return 1
+    printf '%s\n' "$bsd"
+}
+
 # --- MakeMKV disc index (WHY is this not the same as /dev/sr1. WHY.) -------
 # parse DRV: spam from `makemkvcon -r info disc:9999` and pray
 

@@ -69,22 +69,37 @@ Ripperoni tracks what the drive is physically doing.
 - **`busy`** — Something is already working over the device.
 - **`empty-or-open`** — macOS only. Apple talks to the cops too much _(see **The Apple Snitch Issue** below)_.
 
-**The Apple Snitch Issue:** Linux relies on the `CDROM_DRIVE_STATUS` ioctl. Apple's `drutil` is a useless rat that can't tell an open tray from an empty one. On macOS, ripperoni prefers **`ripperoni-iokit-state`**, a small Swift tool under [`tools/macos-iokit-state/`](tools/macos-iokit-state/) that reads IOKit (`IOCD` / `IODVD` / `IOBD` block storage devices) for tray and media hints. Build it with `swift build -c release` (binary lands in `.build/<arch>-apple-macosx/release/`), put it on your `PATH`, or point **`RIPPERONI_IOKIT_STATE`** at the executable. If the helper is missing or returns `unknown`, ripperoni falls back to `drutil` and the ambiguous **`empty-or-open`** state. Drive order follows ascending IOKit registry IDs, which usually matches `drutil list` numbering; if not, override with the usual drive selection knobs.
+**The Apple Snitch Issue:** Linux relies on the `CDROM_DRIVE_STATUS` ioctl. Apple's `drutil` is a useless rat that can't tell an open tray from an empty one. On macOS, ripperoni prefers **`ripperoni-iokit-state`**, a small Swift tool under [`tools/macos-iokit-state/`](tools/macos-iokit-state/) that reads IOKit (`IOCD` / `IODVD` / `IOBD` block storage devices) for tray and media hints. Build it with `swift build -c release` (binary lands in `.build/<arch>-apple-macosx/release/`), put it on your `PATH`, or point **`RIPPERONI_IOKIT_STATE`** at the executable. For safety, ripperoni only uses helper output when it can map your selected drive to a concrete BSD node (`/dev/diskN`); if mapping cannot be proven, or helper output is `unknown`, ripperoni falls back to `drutil` and the ambiguous **`empty-or-open`** state.
 
 ## Getting Made
 
 _(macOS/Linux dependencies remain the same. Compile `makemkvcon` from source on Linux because DRM is a racket. See https://forum.makemkv.com/)_
 
 ```sh
-# ... standard git clone / symlink setup ...
+# clone wherever you keep your operations
+git clone https://github.com/<you>/ripperoni.git
+cd ripperoni
+
+# install command globally (recommended)
+./scripts/install.sh
+
+# or user-local install (no sudo)
+./scripts/install.sh --user
+
 mkdir -p ~/.config/ripperoni
-cp ~/src/ripperoni/share/templates/config ~/.config/ripperoni/config
+cp ./share/templates/config ~/.config/ripperoni/config
 $EDITOR ~/.config/ripperoni/config
 
 ripperoni doctor
 ```
 
 Run `ripperoni doctor`. He will tell you what's what. Fix the problem, run it again. When he gives you the nod, feed it a disc.
+
+### Source mode vs installed mode
+
+- Source mode: run `./ripperoni` from the repo root (or `./bin/ripperoni`).
+- Installed mode: run `ripperoni` from anywhere after `./scripts/install.sh`.
+- Uninstall: `./scripts/uninstall.sh` (or `./scripts/uninstall.sh --user` if installed with `--user`).
 
 ### Environment overrides
 

@@ -37,10 +37,33 @@ _iokit_helper_bin() {
 }
 
 # Prints a trusted state line on success; exit 1 → caller uses drutil.
+_iokit_selector_for_drive() {
+    drive=$1
+
+    case "$RIPPERONI_OS" in
+        macos) ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    case "$drive" in
+        /dev/disk[0-9]*)
+            printf '%s\n' "$drive"
+            return 0
+            ;;
+    esac
+
+    _bsd=$(drive_macos_bsd_node "$drive" 2>/dev/null || true)
+    [ -n "$_bsd" ] || return 1
+    printf '%s\n' "$_bsd"
+}
+
 _iokit_state_try() {
     drive=$1
     _bin=$( _iokit_helper_bin ) || return 1
-    _line=$("$_bin" "$drive" 2>/dev/null) || return 1
+    _selector=$( _iokit_selector_for_drive "$drive" ) || return 1
+    _line=$("$_bin" "$_selector" 2>/dev/null) || return 1
     _line=$(printf '%s\n' "$_line" | tr -d '\r')
     case "$_line" in
         open|empty|loading|ready|busy)

@@ -6,7 +6,7 @@
 // Exit: 0 always when a line is printed; stderr for diagnostics.
 // Invalid usage: exit 2.
 //
-// Argument: drutil-style 1-based drive index (same as RIPPERONI_DRIVE on macOS).
+// Argument: drutil-style 1-based drive index or /dev/diskN (/dev/rdiskN) BSD node.
 
 import Foundation
 import IOKit
@@ -80,6 +80,24 @@ private func intProperty(_ entry: io_registry_entry_t, _ key: String) -> Int64? 
     if let n = ref as? Int64 { return n }
     if let n = ref as? Int { return Int64(n) }
     if let n = ref as? NSNumber { return n.int64Value }
+    return nil
+}
+
+private func searchProperty(_ entry: io_registry_entry_t, _ key: String) -> CFTypeRef? {
+    let options = IOOptionBits(kIORegistryIterateRecursively | kIORegistryIterateParents)
+    return IORegistryEntrySearchCFProperty(
+        entry,
+        kIOServicePlane,
+        key as CFString,
+        kCFAllocatorDefault,
+        options
+    )
+}
+
+private func bsdName(for entry: io_registry_entry_t) -> String? {
+    guard let ref = searchProperty(entry, "BSD Name") else { return nil }
+    if let s = ref as? String { return s }
+    if let s = ref as? NSString { return s as String }
     return nil
 }
 
@@ -164,10 +182,11 @@ private func state(for service: io_registry_entry_t) -> String {
         return "open"
     }
 
+    if busy {
+        return "busy"
+    }
+
     if media {
-        if busy {
-            return "loading"
-        }
         return "ready"
     }
 
@@ -180,13 +199,32 @@ private func state(for service: io_registry_entry_t) -> String {
 }
 
 private func usage() -> Never {
-    fputs("usage: ripperoni-iokit-state <drive>\n  drive: drutil 1-based index\n", stderr)
+    fputs(
+        "usage: ripperoni-iokit-state <drive>\n  drive: drutil 1-based index, /dev/diskN, diskN, or /dev/rdiskN\n",
+        stderr
+    )
     exit(2)
+}
+
+private func canonicalBSDToken(_ raw: String) -> String? {
+    var token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !token.isEmpty else { return nil }
+
+    if token.hasPrefix("/dev/") {
+        token = String(token.dropFirst(5))
+    }
+    if token.hasPrefix("rdisk") {
+        token = "disk" + String(token.dropFirst(5))
+    }
+    if token.range(of: #"^disk[0-9]+$"#, options: .regularExpression) != nil {
+        return token
+    }
+    return nil
 }
 
 func main() {
     let args = CommandLine.arguments.dropFirst()
-    guard let first = args.first, let idx = Int(first), idx >= 1 else {
+    guard let first = args.first else {
         usage()
     }
 
@@ -197,13 +235,26 @@ func main() {
         }
     }
 
-    guard idx <= services.count else {
+    if let bsdToken = canonicalBSDToken(first) {
+        for svc in services {
+            if bsdName(for: svc) == bsdToken {
+                print(state(for: svc))
+                return
+            }
+        }
         print("unknown")
-        exit(0)
+        return
     }
 
-    let svc = services[idx - 1]
-    print(state(for: svc))
+    guard let idx = Int(first), idx >= 1 else {
+        usage()
+    }
+    guard idx <= services.count else {
+        print("unknown")
+        return
+    }
+
+    print(state(for: services[idx - 1]))
 }
 
 main()

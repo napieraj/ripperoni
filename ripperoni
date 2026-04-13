@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+SELF=$(readlink "$0" 2>/dev/null || echo "$0")
+case "$SELF" in
+    /*) ;;
+    *) SELF="$(pwd)/$SELF" ;;
+esac
+
+ROOT=$(cd "$(dirname "$SELF")" && pwd)
+exec "$ROOT/bin/ripperoni" "$@"
