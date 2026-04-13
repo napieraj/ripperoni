@@ -1,6 +1,6 @@
 #!/bin/sh
 # shared noise (logs), death (die), and crypto trivia nobody agrees on
-# everyone sources this. try not to run rm -rf / on import thanks
+# everything sources this
 
 # --- logging --------------------------------------------------------------
 

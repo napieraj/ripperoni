@@ -34,7 +34,7 @@ platform_sleep_inhibit_start() {
             ;;
         linux)
             if command -v systemd-inhibit >/dev/null 2>&1; then
-                # systemd wants a process. fine. sleep 24h it is, you weirdos
+                # systemd wants a process. fine. a 24h nap you get, weirdos
                 systemd-inhibit --what=idle:sleep:handle-lid-switch \
                     --who=rip --why="ripping disc" \
                     sleep 86400 &
