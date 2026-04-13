@@ -19,3 +19,6 @@ Thumbs.db
 
 # SwiftPM (optional macOS helper)
 tools/macos-iokit-state/.build/
+
+# Cursor local metadata/agents
+.cursor/
